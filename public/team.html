@@ -1,0 +1,328 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tower Scramble</title>
+<link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --neon: #00ffd5;
+    --pink: #ff2e88;
+    --yellow: #ffe600;
+    --bg: #0a1030;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { min-height: 100%; }
+  body {
+    font-family: 'Press Start 2P', 'Courier New', monospace;
+    background: var(--bg) url('/background.png') center bottom / cover no-repeat fixed;
+    image-rendering: pixelated;
+    color: #fff;
+    display: flex; align-items: center; justify-content: center;
+    min-height: 100vh; padding: 16px;
+  }
+  body::after {
+    content: '';
+    position: fixed; inset: 0; pointer-events: none; z-index: 50;
+    background: repeating-linear-gradient(0deg, rgba(0,0,0,.15) 0 2px, transparent 2px 4px);
+  }
+
+  .panel {
+    width: 100%; max-width: 560px;
+    background: rgba(5, 8, 30, .92);
+    border: 3px solid var(--neon);
+    box-shadow: 8px 8px 0 rgba(0,0,0,.55), 0 0 24px rgba(0,255,213,.2);
+    padding: 26px;
+    text-align: center;
+  }
+  h1 {
+    font-size: clamp(13px, 4vw, 18px); color: var(--yellow);
+    text-shadow: 2px 2px 0 var(--pink);
+    margin-bottom: 22px; letter-spacing: 1px;
+  }
+  .hidden { display: none !important; }
+  .blink { animation: blink 1s steps(1) infinite; }
+  @keyframes blink { 50% { opacity: 0; } }
+
+  label { display: block; font-size: 9px; color: var(--neon); text-align: left; margin: 16px 0 8px; }
+  input[type=text] {
+    width: 100%; font-family: inherit; font-size: 14px;
+    background: #05081e; color: #fff;
+    border: 2px solid var(--neon); padding: 12px;
+    outline: none; text-transform: uppercase;
+  }
+  input[type=text]:focus { border-color: var(--yellow); }
+
+  .avatars { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; }
+  .avatars button {
+    font-size: 24px; padding: 10px 12px;
+    background: #05081e; border: 2px solid #345;
+    cursor: pointer; box-shadow: none;
+  }
+  .avatars button.sel { border-color: var(--yellow); background: #1b2a5e; box-shadow: 0 0 10px var(--yellow); }
+  .avatars button:disabled { opacity: .25; cursor: not-allowed; }
+
+  .btn {
+    font-family: inherit; font-size: 12px; cursor: pointer;
+    color: #05081e; background: var(--neon);
+    border: 0; padding: 14px 26px; margin-top: 22px;
+    box-shadow: 4px 4px 0 rgba(0,0,0,.6);
+  }
+  .btn:hover { background: var(--yellow); }
+  .btn:active { transform: translate(2px,2px); box-shadow: 2px 2px 0 rgba(0,0,0,.6); }
+
+  .err { color: var(--pink); font-size: 9px; margin-top: 14px; min-height: 12px; line-height: 1.7; }
+
+  /* ------- play screen ------- */
+  .hud { display: flex; justify-content: space-between; align-items: center; font-size: 10px; margin-bottom: 18px; }
+  .hud .who { color: var(--neon); }
+  .hud .lvl { color: var(--yellow); }
+  .category { font-size: 9px; color: #8ff; margin-bottom: 14px; }
+  .tiles { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; margin: 8px 0 20px; }
+  .tiles span {
+    display: inline-block; min-width: 34px; padding: 12px 6px;
+    background: var(--navy, #1b2a5e); border: 2px solid var(--neon);
+    font-size: 16px; text-transform: uppercase; color: #fff;
+    box-shadow: 3px 3px 0 rgba(0,0,0,.5);
+  }
+  .timerbar { height: 14px; background: #05081e; border: 2px solid #fff; margin-bottom: 18px; }
+  .timerbar i { display: block; height: 100%; background: var(--neon); transition: width .25s linear; }
+  .timerbar.low i { background: var(--pink); }
+  .timeleft { font-size: 20px; color: var(--yellow); margin-bottom: 14px; }
+  .timeleft.low { color: var(--pink); animation: blink .5s steps(1) infinite; }
+
+  form.guess { display: flex; gap: 8px; }
+  form.guess input { flex: 1; }
+  form.guess .btn { margin-top: 0; padding: 12px 18px; }
+
+  .feedback { font-size: 11px; min-height: 30px; margin-top: 16px; line-height: 1.8; }
+  .feedback.good { color: #4dff7c; }
+  .feedback.bad { color: var(--pink); }
+
+  .panel.shake { animation: shake .35s linear; }
+  @keyframes shake { 25% { transform: translateX(-8px); } 50% { transform: translateX(8px); } 75% { transform: translateX(-5px); } }
+  .panel.flash-good { animation: flashG .6s ease; }
+  @keyframes flashG { 30% { box-shadow: 0 0 40px #4dff7c; border-color: #4dff7c; } }
+
+  .bigmoji { font-size: 64px; margin: 12px 0; }
+  .subtitle { font-size: 10px; color: #cfe; line-height: 2; }
+  .winner-name { font-size: 16px; color: var(--yellow); text-shadow: 2px 2px 0 var(--pink); margin: 14px 0; }
+
+  .ladder { font-size: 9px; color: #8ff; margin-top: 18px; letter-spacing: 3px; }
+</style>
+</head>
+<body>
+  <div class="panel" id="panel">
+    <h1>★ TOWER SCRAMBLE ★</h1>
+
+    <!-- JOIN -->
+    <div id="viewJoin">
+      <label>TEAM NAME</label>
+      <input type="text" id="nameInput" maxlength="20" placeholder="THE UNSCRAMBLERS" autocomplete="off">
+      <label>CHOOSE YOUR CLIMBER</label>
+      <div class="avatars" id="avatarGrid"></div>
+      <button class="btn" id="joinBtn">▶ CREATE TEAM</button>
+      <div class="err" id="joinErr"></div>
+    </div>
+
+    <!-- LOBBY -->
+    <div id="viewLobby" class="hidden">
+      <div class="bigmoji" id="lobbyAvatar"></div>
+      <div class="winner-name" id="lobbyName"></div>
+      <div class="subtitle">You're in! Watch the big screen.</div>
+      <div class="subtitle blink" style="margin-top:18px">WAITING FOR HOST TO START…</div>
+      <div class="subtitle" id="lobbyTeams" style="margin-top:18px"></div>
+    </div>
+
+    <!-- PLAY -->
+    <div id="viewPlay" class="hidden">
+      <div class="hud">
+        <span class="who" id="hudWho"></span>
+        <span class="lvl" id="hudLvl"></span>
+      </div>
+      <div class="category" id="category"></div>
+      <div class="tiles" id="tiles"></div>
+      <div class="timeleft" id="timeleft">60</div>
+      <div class="timerbar" id="timerbar"><i id="timerfill"></i></div>
+      <form class="guess" id="guessForm">
+        <input type="text" id="guessInput" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="TYPE ANSWER">
+        <button class="btn" type="submit">GO!</button>
+      </form>
+      <div class="feedback" id="feedback"></div>
+      <div class="ladder" id="ladder"></div>
+    </div>
+
+    <!-- GAME OVER -->
+    <div id="viewOver" class="hidden">
+      <div class="bigmoji" id="overMoji">👑</div>
+      <div class="winner-name" id="overName"></div>
+      <div class="subtitle" id="overSub"></div>
+    </div>
+  </div>
+
+<script>
+let state = null;
+let teamId = localStorage.getItem('ts_teamId') || null;
+let selectedAvatar = null;
+let clockOffset = 0;
+let lastEventSeq = 0;
+let feedbackTimer = null;
+
+const $ = (id) => document.getElementById(id);
+
+function post(path, body) {
+  return fetch(path, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body || {}),
+  }).then((r) => r.json());
+}
+
+function esc(s) {
+  return String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+}
+
+function myTeam() {
+  return state && teamId ? state.teams.find((t) => t.id === teamId) : null;
+}
+
+function show(view) {
+  for (const v of ['viewJoin', 'viewLobby', 'viewPlay', 'viewOver']) {
+    $(v).classList.toggle('hidden', v !== view);
+  }
+}
+
+// ---------- join ----------
+function renderAvatarGrid() {
+  const grid = $('avatarGrid');
+  grid.innerHTML = '';
+  for (const a of state.avatars) {
+    const taken = state.takenAvatars.includes(a);
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.textContent = a;
+    b.disabled = taken;
+    b.classList.toggle('sel', selectedAvatar === a);
+    b.onclick = () => { selectedAvatar = a; renderAvatarGrid(); };
+    grid.appendChild(b);
+  }
+}
+
+$('joinBtn').onclick = async () => {
+  const r = await post('/api/join', { name: $('nameInput').value, avatar: selectedAvatar });
+  if (r.error) { $('joinErr').textContent = r.error; return; }
+  teamId = r.teamId;
+  localStorage.setItem('ts_teamId', teamId);
+  $('joinErr').textContent = '';
+};
+
+// ---------- play ----------
+$('guessForm').onsubmit = async (e) => {
+  e.preventDefault();
+  const guess = $('guessInput').value.trim();
+  if (!guess) return;
+  const r = await post('/api/guess', { teamId, guess });
+  const panel = $('panel');
+  if (r.rejoin) { teamId = null; localStorage.removeItem('ts_teamId'); render(); return; }
+  if (r.correct) {
+    $('guessInput').value = '';
+    setFeedback('CORRECT! CLIMBING UP! ▲', 'good');
+    panel.classList.remove('flash-good'); void panel.offsetWidth;
+    panel.classList.add('flash-good');
+  } else if (r.correct === false) {
+    setFeedback('NOPE! TRY AGAIN…', 'bad');
+    panel.classList.remove('shake'); void panel.offsetWidth;
+    panel.classList.add('shake');
+    $('guessInput').select();
+  } else if (r.error) {
+    setFeedback(r.error, 'bad');
+  }
+};
+
+function setFeedback(msg, cls) {
+  const f = $('feedback');
+  f.textContent = msg;
+  f.className = 'feedback ' + cls;
+  clearTimeout(feedbackTimer);
+  feedbackTimer = setTimeout(() => { f.textContent = ''; }, 2500);
+}
+
+function renderPlay() {
+  const t = myTeam();
+  if (!t) return;
+  $('hudWho').textContent = t.avatar + ' ' + t.name;
+  $('hudLvl').textContent = 'FLOOR ' + t.rung + '/' + state.winRung;
+  $('category').textContent = t.category ? '[ ' + t.category.toUpperCase() + ' · ' + t.length + ' LETTERS ]' : '';
+  $('tiles').innerHTML = (t.scrambled || '').split('').map((c) => '<span>' + esc(c) + '</span>').join('');
+  $('ladder').textContent = '▲'.repeat(t.rung) + '△'.repeat(state.winRung - t.rung);
+
+  // drop notice
+  if (t.lastEvent && t.lastEvent.seq !== lastEventSeq) {
+    lastEventSeq = t.lastEvent.seq;
+    if (t.lastEvent.type === 'drop') {
+      setFeedback("TIME'S UP! A BABY FALCON KNOCKED YOU DOWN A FLOOR ▼", 'bad');
+      $('guessInput').value = '';
+    }
+  }
+  renderTimer();
+}
+
+function renderTimer() {
+  const t = myTeam();
+  if (!t || !t.deadline) return;
+  const remainMs = Math.max(0, t.deadline - (Date.now() + clockOffset));
+  const secs = Math.ceil(remainMs / 1000);
+  const low = secs <= 10;
+  $('timeleft').textContent = secs;
+  $('timeleft').className = 'timeleft' + (low ? ' low' : '');
+  $('timerbar').className = 'timerbar' + (low ? ' low' : '');
+  $('timerfill').style.width = (remainMs / 600) + '%';
+}
+
+// ---------- master render ----------
+function render() {
+  if (!state) return;
+  const t = myTeam();
+  if (teamId && !t) { teamId = null; localStorage.removeItem('ts_teamId'); }
+
+  if (state.phase === 'won') {
+    const win = state.winner;
+    const meWon = t && win && win.id === t.id;
+    $('overMoji').textContent = meWon ? '🏆' : win ? win.avatar : '👑';
+    $('overName').textContent = win ? (meWon ? 'YOU WIN!' : win.name + ' WINS!') : 'GAME OVER';
+    $('overSub').innerHTML = meWon
+      ? 'You scaled all ' + state.winRung + ' floors of the tower!'
+      : 'They reached the top first.<br><br><span class="blink">WAITING FOR NEW GAME…</span>';
+    show('viewOver');
+    return;
+  }
+  if (!t) {
+    renderAvatarGrid();
+    show('viewJoin');
+    if (state.phase !== 'lobby') {
+      $('joinErr').textContent = 'GAME IN PROGRESS — join when the host resets.';
+    }
+    return;
+  }
+  if (state.phase === 'lobby') {
+    $('lobbyAvatar').textContent = t.avatar;
+    $('lobbyName').textContent = t.name;
+    $('lobbyTeams').innerHTML = 'TEAMS: ' + state.teams.map((x) => x.avatar + ' ' + esc(x.name)).join(' · ');
+    show('viewLobby');
+    return;
+  }
+  show('viewPlay');
+  renderPlay();
+}
+
+const es = new EventSource('/events');
+es.onmessage = (e) => {
+  state = JSON.parse(e.data);
+  clockOffset = state.now - Date.now();
+  render();
+};
+setInterval(() => { if (state && state.phase === 'playing' && myTeam()) renderTimer(); }, 200);
+</script>
+</body>
+</html>

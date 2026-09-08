@@ -1,0 +1,627 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tower Scramble — Board</title>
+<link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --neon: #00ffd5;
+    --pink: #ff2e88;
+    --yellow: #ffe600;
+    --navy: #1b2a5e;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; overflow: hidden; }
+  body {
+    font-family: 'Press Start 2P', 'Courier New', monospace;
+    background: #0a1030 url('/background.png') center bottom / cover no-repeat;
+    image-rendering: pixelated;
+    color: #fff;
+    position: relative;
+  }
+  img { image-rendering: pixelated; }
+
+  /* CRT scanlines + vignette */
+  .crt::after {
+    content: '';
+    position: fixed; inset: 0; pointer-events: none; z-index: 50;
+    background:
+      repeating-linear-gradient(0deg, rgba(0,0,0,.18) 0 2px, transparent 2px 4px),
+      radial-gradient(ellipse at center, transparent 60%, rgba(0,0,10,.55) 100%);
+  }
+
+  header {
+    position: fixed; top: 0; left: 0; right: 0; z-index: 20;
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 14px 22px;
+    background: linear-gradient(180deg, rgba(5,8,30,.92), rgba(5,8,30,.55) 75%, transparent);
+  }
+  h1 {
+    font-size: clamp(14px, 2.2vw, 26px);
+    color: var(--yellow);
+    text-shadow: 3px 3px 0 var(--pink), 6px 6px 0 rgba(0,0,0,.6);
+    letter-spacing: 2px;
+    animation: titleGlow 2.4s ease-in-out infinite;
+  }
+  @keyframes titleGlow { 50% { text-shadow: 3px 3px 0 var(--pink), 0 0 18px var(--yellow); } }
+
+  .join-hint { text-align: right; font-size: clamp(8px, 1vw, 12px); line-height: 1.9; color: var(--neon); }
+  .join-hint .url { color: #fff; background: rgba(0,0,0,.55); padding: 4px 8px; border: 2px solid var(--neon); }
+
+  /* ---------------- tower ---------------- */
+  .stage { position: fixed; inset: 0; }
+  .tower-wrap {
+    position: absolute; bottom: 0; left: 50%;
+    height: 80vh; aspect-ratio: 256 / 144;
+    transform: translateX(-50%);
+  }
+  .tower-wrap img {
+    position: absolute; inset: 0; width: 100%; height: 100%;
+    filter: drop-shadow(0 0 14px rgba(0, 255, 213, .25));
+  }
+  /* frame-by-frame sway: exactly ONE frame visible at a time.
+     4-slot cycle — tower1 (center) → tower2 (leans left) → tower1 → tower3 (leans right) */
+  .t1 { animation: sway1 2.4s steps(1) infinite; }
+  .t2 { opacity: 0; animation: sway2 2.4s steps(1) infinite; }
+  .t3 { opacity: 0; animation: sway3 2.4s steps(1) infinite; }
+  @keyframes sway1 { 0%, 50% { opacity: 1; } 25%, 75% { opacity: 0; } 100% { opacity: 1; } }
+  @keyframes sway2 { 0% { opacity: 0; } 25% { opacity: 1; } 50%, 100% { opacity: 0; } }
+  @keyframes sway3 { 0% { opacity: 0; } 75% { opacity: 1; } 100% { opacity: 0; } }
+  /* fast sway while a team climbs */
+  .tower-wrap.rumble .t1 { animation-duration: .4s; }
+  .tower-wrap.rumble .t2 { animation-duration: .4s; }
+  .tower-wrap.rumble .t3 { animation-duration: .4s; }
+
+  /* climber overlay matches the tower's opaque bbox inside the 256x144 frame:
+     x 99-161  →  left 38.7% width 24.2%   |   y 8-140  →  top 5.5% height 91.7% */
+  .climb-zone {
+    position: absolute;
+    left: 38.7%; width: 24.2%;
+    top: 5.5%; height: 91.7%;
+  }
+  .avatar {
+    position: absolute;
+    transform: translate(-50%, -50%);
+    font-size: clamp(20px, 3.4vh, 34px);
+    transition: top 1s cubic-bezier(.2, 1.6, .4, 1), left .5s ease;
+    filter: drop-shadow(0 3px 2px rgba(0,0,0,.7));
+    z-index: 10;
+    text-align: center;
+    line-height: 1;
+  }
+  .avatar .tag {
+    display: block;
+    font-size: clamp(6px, .9vh, 9px);
+    font-family: 'Press Start 2P', monospace;
+    color: #fff; text-shadow: 1px 1px 0 #000, 0 0 6px #000;
+    margin-top: 2px; white-space: nowrap;
+  }
+  .avatar.dropped { animation: dropFlash .8s steps(2) 3; }
+  @keyframes dropFlash { 50% { filter: drop-shadow(0 0 10px red) brightness(2); } }
+  .avatar.winner { animation: bounceWin .5s ease-in-out infinite alternate; }
+  @keyframes bounceWin { to { margin-top: -12px; filter: drop-shadow(0 0 14px var(--yellow)); } }
+
+  /* ---------------- rooftop: the boss vs the falcon ---------------- */
+  .spr { position: absolute; }
+  .spr svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+  .spr svg.f2 { opacity: 0; }
+  .spr.flap svg.f1 { animation: flapA var(--fd, .5s) steps(1) infinite; }
+  .spr.flap svg.f2 { animation: flapB var(--fd, .5s) steps(1) infinite; }
+  @keyframes flapA { 0% { opacity: 1; } 50% { opacity: 0; } 100% { opacity: 1; } }
+  @keyframes flapB { 0% { opacity: 0; } 50% { opacity: 1; } 100% { opacity: 0; } }
+
+  /* an invisible line along the tower's roof; sprites hang from bottom:0 of it */
+  .roof-scene {
+    position: absolute;
+    left: 38.7%; width: 24.2%;
+    top: 5.6%; height: 0;
+    overflow: visible;
+    z-index: 12;
+  }
+  #nate { left: 66%; bottom: 0; height: 6vh; aspect-ratio: 16 / 18; }
+  #bigFalcon {
+    left: 32%; bottom: 1.2vh; height: 6.8vh; aspect-ratio: 16 / 12;
+    transform: scaleX(-1); /* face Nate */
+    animation: hoverBob 1.6s ease-in-out infinite alternate;
+  }
+  @keyframes hoverBob { from { margin-bottom: 0; } to { margin-bottom: 12px; } }
+
+  .bubble {
+    position: fixed; z-index: 22;
+    left: 62%; top: 13%;
+    max-width: 25vw;
+    background: #fff; color: #000;
+    font-size: clamp(8px, 1.05vw, 13px); line-height: 1.7;
+    padding: 12px 14px;
+    border: 3px solid #000;
+    box-shadow: 5px 5px 0 rgba(0,0,0,.55);
+  }
+  .bubble::before {
+    content: '';
+    position: absolute; left: -16px; bottom: 8px;
+    border: 8px solid transparent; border-right-color: #000;
+  }
+  .bubble::after {
+    content: '';
+    position: absolute; left: -9px; bottom: 11px;
+    border: 5px solid transparent; border-right-color: #fff;
+  }
+  .bubble.pop { animation: bubblePop .3s ease; }
+  @keyframes bubblePop { 40% { transform: scale(1.12); } }
+
+  /* idle baby falcons patrolling the sky */
+  .baby { position: fixed; z-index: 8; height: 4vh; aspect-ratio: 16 / 12; pointer-events: none; }
+  .baby .spr { inset: 0; }
+  .baby.p1 { animation: patrol1 26s linear infinite; }
+  .baby.p2 { animation: patrol2 34s linear infinite; animation-delay: -12s; }
+  .baby.p3 { animation: patrol3 21s linear infinite; animation-delay: -5s; }
+  @keyframes patrol1 {
+    0%   { left: -6%;  top: 22%; transform: scaleX(-1); }
+    49%  { left: 101%; top: 30%; transform: scaleX(-1); }
+    50%  { left: 101%; top: 26%; transform: scaleX(1); }
+    99%  { left: -6%;  top: 18%; transform: scaleX(1); }
+    100% { left: -6%;  top: 22%; transform: scaleX(-1); }
+  }
+  @keyframes patrol2 {
+    0%   { left: 101%; top: 12%; transform: scaleX(1); }
+    49%  { left: -6%;  top: 20%; transform: scaleX(1); }
+    50%  { left: -6%;  top: 16%; transform: scaleX(-1); }
+    99%  { left: 101%; top: 10%; transform: scaleX(-1); }
+    100% { left: 101%; top: 12%; transform: scaleX(1); }
+  }
+  @keyframes patrol3 {
+    0%   { left: -6%;  top: 55%; transform: scaleX(-1); }
+    49%  { left: 101%; top: 42%; transform: scaleX(-1); }
+    50%  { left: 101%; top: 46%; transform: scaleX(1); }
+    99%  { left: -6%;  top: 60%; transform: scaleX(1); }
+    100% { left: -6%;  top: 55%; transform: scaleX(-1); }
+  }
+
+  /* dive-bombing attack falcon + damage floater */
+  .attack-falcon { position: fixed; z-index: 15; height: 5vh; aspect-ratio: 16 / 12; pointer-events: none; }
+  .floater {
+    position: fixed; z-index: 24; pointer-events: none;
+    font-size: clamp(10px, 1.4vw, 16px); color: var(--pink);
+    text-shadow: 2px 2px 0 #000;
+    transform: translate(-50%, -50%);
+    animation: floatUp 1.6s ease-out forwards;
+  }
+  @keyframes floatUp { to { margin-top: -70px; opacity: 0; } }
+
+  /* ---------------- scoreboard ---------------- */
+  .scoreboard {
+    position: fixed; left: 18px; top: 90px; z-index: 20;
+    width: min(320px, 26vw);
+    background: rgba(5, 8, 30, .85);
+    border: 3px solid var(--neon);
+    box-shadow: 6px 6px 0 rgba(0,0,0,.5), 0 0 18px rgba(0,255,213,.25);
+    padding: 14px;
+  }
+  .scoreboard h2 { font-size: 11px; color: var(--neon); margin-bottom: 12px; letter-spacing: 1px; }
+  .team-row { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; font-size: 10px; }
+  .team-row .em { font-size: 20px; }
+  .team-row .nm { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .team-row .lvl { color: var(--yellow); }
+  .bar { height: 6px; background: #222; margin-top: 5px; border: 1px solid #000; }
+  .bar i { display: block; height: 100%; background: var(--pink); transition: width .3s linear; }
+  .team-row.leader .nm { color: var(--yellow); }
+
+  /* ---------------- controls / lobby ---------------- */
+  .controls { position: fixed; right: 18px; bottom: 18px; z-index: 20; display: flex; gap: 12px; }
+  button {
+    font-family: inherit; font-size: 12px; cursor: pointer;
+    color: #05081e; background: var(--neon);
+    border: 0; padding: 14px 22px;
+    box-shadow: 4px 4px 0 rgba(0,0,0,.6);
+  }
+  button:hover { background: var(--yellow); }
+  button:active { transform: translate(2px, 2px); box-shadow: 2px 2px 0 rgba(0,0,0,.6); }
+  button.danger { background: var(--pink); color: #fff; }
+
+  .lobby-banner {
+    position: fixed; left: 50%; top: 44%; transform: translate(-50%, -50%);
+    z-index: 25; text-align: center;
+    background: rgba(5,8,30,.9); border: 3px solid var(--pink);
+    box-shadow: 8px 8px 0 rgba(0,0,0,.5);
+    padding: 26px 34px; max-width: 80vw;
+  }
+  .lobby-banner .big { font-size: clamp(14px, 2vw, 22px); color: var(--yellow); margin-bottom: 16px; }
+  .lobby-banner .info { font-size: clamp(9px, 1.2vw, 12px); line-height: 2; color: #cfe; }
+  .blink { animation: blink 1s steps(1) infinite; }
+  @keyframes blink { 50% { opacity: 0; } }
+
+  /* ---------------- winner ---------------- */
+  .winner-overlay {
+    position: fixed; inset: 0; z-index: 40;
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 26px;
+    background: rgba(3, 5, 20, .82); text-align: center;
+  }
+  .winner-overlay .crown { font-size: 90px; animation: bounceWin .5s ease-in-out infinite alternate; }
+  .winner-overlay .who {
+    font-size: clamp(18px, 3.4vw, 40px); color: var(--yellow);
+    text-shadow: 4px 4px 0 var(--pink);
+  }
+  .winner-overlay .sub { font-size: clamp(10px, 1.4vw, 16px); color: var(--neon); }
+  .hidden { display: none !important; }
+</style>
+</head>
+<body class="crt">
+  <header>
+    <h1>★ TOWER SCRAMBLE ★</h1>
+    <div class="join-hint">
+      TEAMS JOIN AT<br>
+      <span class="url" id="joinUrl">…</span>
+    </div>
+  </header>
+
+  <div class="stage">
+    <div class="tower-wrap" id="towerWrap">
+      <img src="/tower1.png" class="t1" alt="tower">
+      <img src="/tower2.png" class="t2" alt="">
+      <img src="/tower3.png" class="t3" alt="">
+      <div class="climb-zone" id="climbZone"></div>
+      <div class="roof-scene">
+        <div id="bigFalcon" class="spr flap" style="--fd:.7s"></div>
+        <div id="nate" class="spr flap" style="--fd:.55s"></div>
+      </div>
+    </div>
+    <div class="bubble" id="bubble">GET UP HERE AND HELP ME!</div>
+    <div class="baby p1"></div>
+    <div class="baby p2"></div>
+    <div class="baby p3"></div>
+  </div>
+
+  <div class="scoreboard">
+    <h2>▸ STANDINGS</h2>
+    <div id="rows"><div style="font-size:9px;color:#889">No teams yet…</div></div>
+  </div>
+
+  <div class="lobby-banner" id="lobbyBanner">
+    <div class="big blink">INSERT TEAMS</div>
+    <div class="info" id="lobbyInfo">Waiting for teams to join…</div>
+  </div>
+
+  <div class="controls">
+    <button id="startBtn">▶ START GAME</button>
+    <button id="resetBtn" class="danger">↺ RESET</button>
+  </div>
+
+  <div class="winner-overlay hidden" id="winnerOverlay">
+    <div class="crown" id="winAvatar">👑</div>
+    <div class="who" id="winName"></div>
+    <div class="sub blink">REACHED THE TOP OF THE TOWER!</div>
+    <button id="againBtn">↺ PLAY AGAIN</button>
+  </div>
+
+<script>
+// ================= pixel sprites (the boss & the falcons) =================
+// Each sprite is a char grid; the palette maps chars to colors. Two grids
+// per sprite = two animation frames, cycled by the .flap CSS.
+
+const NATE_PAL = {
+  s: '#e2a87c', h: '#8d8d8d', b: '#b3ada3', e: '#1d1d1d',
+  w: '#f5f5f5', W: '#d9d9d9', n: '#1b2a5e', t: '#d9a52e',
+  p: '#3a3a44', P: '#222222',
+};
+const NATE_A = [ // arms thrown up
+  '.ss..........ss.',
+  '.ww...ssss...ww.',
+  '.ww..ssssss..ww.',
+  '.ww.hssssssh.ww.',
+  '.ww.hsessesh.ww.',
+  '.ww.hssssssh.ww.',
+  '.ww..bssssb..ww.',
+  '.ww..bbbbbb..ww.',
+  '.ww...bbbb...ww.',
+  '.wwwwwwwwwwwwww.',
+  '..wwwwwnnwwwww..',
+  '..wwwwwttwwwww..',
+  '..wwwwwnnwwwww..',
+  '..wwwwwttwwwww..',
+  '..WWWWWWWWWWWW..',
+  '...pp......pp...',
+  '...pp......pp...',
+  '...PP......PP...',
+];
+const NATE_B = [ // arms out, shooing
+  '................',
+  '......ssss......',
+  '.....ssssss.....',
+  '....hssssssh....',
+  '....hsessesh....',
+  '....hssssssh....',
+  '.....bssssb.....',
+  '.....bbbbbb.....',
+  '......bbbb......',
+  'sswwwwwwwwwwwwss',
+  '..wwwwwnnwwwww..',
+  '..wwwwwttwwwww..',
+  '..wwwwwnnwwwww..',
+  '..wwwwwttwwwww..',
+  '..WWWWWWWWWWWW..',
+  '...pp......pp...',
+  '...pp......pp...',
+  '...PP......PP...',
+];
+
+const FALCON_PAL = {
+  F: '#4a3418', f: '#6e4d24', c: '#d8b478', k: '#8a6a3e',
+  y: '#f0b400', e: '#ffde59',
+};
+const FALCON_A = [ // wings up (faces left)
+  '...FF......FF...',
+  '...FFF....FFF...',
+  '....FFF..FFF....',
+  '....FFFffFFF....',
+  '.FFfffffffff....',
+  'yFefffffffff....',
+  '.FFfcccccccf....',
+  '..fcckcckccf....',
+  '..fcccccccf.....',
+  '...fffffff......',
+  '....y..y........',
+  '................',
+];
+const FALCON_B = [ // wings swept down
+  '................',
+  '................',
+  '................',
+  '....fffff.......',
+  '.FFfffffffff....',
+  'yFefffffffff....',
+  '.FFfcccccccf....',
+  '..fcckcckccfF...',
+  '..fcccccccfFFF..',
+  '...fffffffFFFF..',
+  '....y..y..FFF...',
+  '...........FF...',
+];
+const BABY_A = [ // wings up (faces left)
+  '.F....F.',
+  '.FF..FF.',
+  'yefffff.',
+  '.ffffff.',
+  '..y..y..',
+  '........',
+];
+const BABY_B = [
+  '........',
+  '........',
+  'yefffff.',
+  '.ffffff.',
+  '.FF..FF.',
+  '..y..y..',
+];
+
+function spriteSVG(rows, palette, cls) {
+  const h = rows.length, w = rows[0].length;
+  let rects = '';
+  rows.forEach((row, y) => {
+    let x = 0;
+    while (x < w) {
+      const c = row[x];
+      if (!palette[c]) { x++; continue; }
+      let x2 = x;
+      while (x2 < w && row[x2] === c) x2++;
+      rects += '<rect x="' + x + '" y="' + y + '" width="' + (x2 - x) +
+        '" height="1" fill="' + palette[c] + '"/>';
+      x = x2;
+    }
+  });
+  return '<svg class="' + cls + '" viewBox="0 0 ' + w + ' ' + h +
+    '" shape-rendering="crispEdges" preserveAspectRatio="xMidYMid meet">' + rects + '</svg>';
+}
+
+function fillSprite(el, frameA, frameB, palette) {
+  el.innerHTML = spriteSVG(frameA, palette, 'f1') + spriteSVG(frameB, palette, 'f2');
+}
+
+const BABY_HTML =
+  '<div class="spr flap" style="inset:0;--fd:.35s">' +
+  spriteSVG(BABY_A, FALCON_PAL, 'f1') + spriteSVG(BABY_B, FALCON_PAL, 'f2') +
+  '</div>';
+
+// ================= the boss's speech bubble =================
+const PHRASES = [
+  'GET UP HERE AND HELP ME!',
+  'SHOO! SHOO! GO ON, GIT!',
+  "IT'S GOT MY TIE!",
+  'UNSCRAMBLE FASTER, PEOPLE!',
+  "THIS ISN'T IN MY JOB DESCRIPTION!",
+  'I HAVE A MEETING IN 5 MINUTES!',
+  'WHO ORDERED THE GIANT BIRD?!',
+  'NOT THE GOATEE!',
+  'HR IS NEVER GOING TO BELIEVE THIS!',
+  'BAD FALCON! DOWN! SIT... FLY? DOWN!',
+];
+const DROP_PHRASES = [
+  'LOOK OUT! IT SENT ITS BABIES!',
+  'FALCON DOWN! I MEAN... TEAM DOWN!',
+  'THE BABIES ARE ATTACKING! TYPE FASTER!',
+];
+let phraseIdx = 0;
+let squawkHold = 0;
+
+function squawk(text) {
+  const b = document.getElementById('bubble');
+  b.textContent = text;
+  b.classList.remove('pop');
+  void b.offsetWidth;
+  b.classList.add('pop');
+}
+setInterval(() => {
+  if (Date.now() < squawkHold) return;
+  phraseIdx = (phraseIdx + 1) % PHRASES.length;
+  squawk(PHRASES[phraseIdx]);
+}, 4500);
+
+// ================= baby falcon dive-bomb =================
+function falconAttack(lanePct, topPct, teamName) {
+  const zone = document.getElementById('climbZone').getBoundingClientRect();
+  const tx = zone.left + (zone.width * lanePct) / 100;
+  const ty = zone.top + (zone.height * topPct) / 100;
+
+  const f = document.createElement('div');
+  f.className = 'attack-falcon';
+  f.innerHTML = BABY_HTML;
+  f.style.left = tx + 340 + 'px';
+  f.style.top = ty - 380 + 'px';
+  document.body.appendChild(f);
+  void f.offsetWidth;
+  f.style.transition = 'left 1s cubic-bezier(.55,0,.9,.6), top 1s cubic-bezier(.55,0,.9,.6)';
+  f.style.left = tx + 'px';
+  f.style.top = ty - 20 + 'px';
+
+  setTimeout(() => {
+    const fl = document.createElement('div');
+    fl.className = 'floater';
+    fl.textContent = '-1 FLOOR!';
+    fl.style.left = tx + 'px';
+    fl.style.top = ty - 30 + 'px';
+    document.body.appendChild(fl);
+    setTimeout(() => fl.remove(), 1700);
+    f.style.transition = 'left 1.2s ease-out, top 1.2s ease-out';
+    f.style.left = tx - 420 + 'px';
+    f.style.top = ty - 420 + 'px';
+  }, 1050);
+  setTimeout(() => f.remove(), 2500);
+
+  squawkHold = Date.now() + 4000;
+  squawk(DROP_PHRASES[Math.floor(Math.random() * DROP_PHRASES.length)]);
+}
+
+// build the rooftop + patrol sprites once
+fillSprite(document.getElementById('nate'), NATE_A, NATE_B, NATE_PAL);
+fillSprite(document.getElementById('bigFalcon'), FALCON_A, FALCON_B, FALCON_PAL);
+document.querySelectorAll('.baby').forEach((b) => { b.innerHTML = BABY_HTML; });
+
+const WIN_RUNG = 10;
+let state = null;
+let clockOffset = 0;
+const seenSeq = new Map(); // teamId -> last lastEvent.seq handled
+let rumbleTimer = null;
+
+const $ = (id) => document.getElementById(id);
+
+function post(path, body) {
+  return fetch(path, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body || {}),
+  }).then((r) => r.json());
+}
+
+$('startBtn').onclick = () => post('/api/start').then((r) => r.error && alert(r.error));
+$('resetBtn').onclick = () => { if (confirm('Reset the game and clear all teams?')) post('/api/reset'); };
+$('againBtn').onclick = () => post('/api/reset');
+
+function rumble(ms) {
+  $('towerWrap').classList.add('rumble');
+  clearTimeout(rumbleTimer);
+  rumbleTimer = setTimeout(() => $('towerWrap').classList.remove('rumble'), ms);
+}
+
+function render() {
+  if (!state) return;
+  $('joinUrl').textContent = state.joinUrl;
+
+  // lobby banner
+  const lobby = state.phase === 'lobby';
+  $('lobbyBanner').classList.toggle('hidden', !lobby);
+  if (lobby) {
+    $('lobbyInfo').innerHTML = state.teams.length
+      ? state.teams.map((t) => t.avatar + ' ' + esc(t.name)).join('<br>') +
+        '<br><br>' + state.teams.length + '/5 TEAMS READY'
+      : 'Open <b>' + esc(state.joinUrl) + '</b> on your laptop<br>to create a team!';
+  }
+  $('startBtn').classList.toggle('hidden', !lobby);
+
+  // winner overlay
+  const won = state.phase === 'won' && state.winner;
+  $('winnerOverlay').classList.toggle('hidden', !won);
+  if (won) {
+    $('winAvatar').textContent = state.winner.avatar;
+    $('winName').textContent = state.winner.name + ' WINS!';
+  }
+
+  renderClimbers();
+  renderScore();
+}
+
+function renderClimbers() {
+  const zone = $('climbZone');
+  const n = state.teams.length || 1;
+  state.teams.forEach((t, i) => {
+    let el = document.getElementById('av_' + t.id);
+    if (!el) {
+      el = document.createElement('div');
+      el.id = 'av_' + t.id;
+      el.className = 'avatar';
+      el.innerHTML = '<span class="em"></span><span class="tag"></span>';
+      zone.appendChild(el);
+    }
+    el.querySelector('.em').textContent = t.avatar;
+    el.querySelector('.tag').textContent = t.name.slice(0, 8);
+    el.style.left = ((i + 0.5) / n) * 100 + '%';
+    // rung 0 sits just above the tower base, rung 10 at the rooftop sign
+    el.style.top = (96 - (t.rung / WIN_RUNG) * 94) + '%';
+    el.classList.toggle('winner', state.winner && state.winner.id === t.id);
+
+    // one-shot animations on new events
+    if (t.lastEvent && seenSeq.get(t.id) !== t.lastEvent.seq) {
+      seenSeq.set(t.id, t.lastEvent.seq);
+      if (t.lastEvent.type === 'climb') rumble(1100);
+      if (t.lastEvent.type === 'win') rumble(3000);
+      if (t.lastEvent.type === 'drop') {
+        el.classList.remove('dropped'); void el.offsetWidth;
+        el.classList.add('dropped');
+        falconAttack(((i + 0.5) / n) * 100, 96 - (t.rung / WIN_RUNG) * 94, t.name);
+      }
+    }
+  });
+  // remove avatars of teams that no longer exist (reset)
+  [...zone.children].forEach((el) => {
+    const id = el.id.replace('av_', '');
+    if (!state.teams.some((t) => t.id === id)) el.remove();
+  });
+}
+
+function renderScore() {
+  const rows = $('rows');
+  if (!state.teams.length) {
+    rows.innerHTML = '<div style="font-size:9px;color:#889">No teams yet…</div>';
+    return;
+  }
+  const now = Date.now() + clockOffset;
+  const sorted = [...state.teams].sort((a, b) => b.rung - a.rung);
+  const topRung = sorted[0].rung;
+  rows.innerHTML = sorted.map((t) => {
+    const secs = t.deadline ? Math.max(0, Math.ceil((t.deadline - now) / 1000)) : null;
+    const pct = t.deadline ? Math.max(0, (t.deadline - now) / 600) : 0;
+    return '<div class="team-row' + (t.rung === topRung && t.rung > 0 ? ' leader' : '') + '">' +
+      '<span class="em">' + t.avatar + '</span>' +
+      '<span class="nm">' + esc(t.name) + '</span>' +
+      '<span class="lvl">' + t.rung + '/' + WIN_RUNG + '</span>' +
+      (secs !== null ? '<span style="color:' + (secs <= 10 ? '#ff2e88' : '#8ff') + '">' + secs + 's</span>' : '') +
+      '</div>' +
+      (t.deadline ? '<div class="bar" style="margin-top:-8px;margin-bottom:10px"><i style="width:' + pct + '%"></i></div>' : '');
+  }).join('');
+}
+
+function esc(s) {
+  return String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+}
+
+const es = new EventSource('/events');
+es.onmessage = (e) => {
+  state = JSON.parse(e.data);
+  clockOffset = state.now - Date.now();
+  render();
+};
+// smooth countdown between server pushes
+setInterval(() => { if (state && state.phase === 'playing') renderScore(); }, 250);
+</script>
+</body>
+</html>
