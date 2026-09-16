@@ -150,6 +150,22 @@ address, or a VPN tunnel address), open the board via the correct IP from
 `ipconfig` and the board will advertise that one instead, or set
 `PUBLIC_URL`.
 
+**Hosted version loads but shows no avatars / the board never updates.**
+A TLS-inspecting corporate proxy (Netskope, Zscaler and similar clients)
+buffers the live event stream until it ends, so the browser never receives
+an update. The pages handle this automatically: if no event arrives within
+2.5 seconds they switch to polling `/state` every 0.7 seconds, which passes
+through any proxy. Verified working through Netskope on the Render deployment.
+If a page still looks frozen, hard-refresh it (Ctrl+F5) so it picks up the
+current `live.js`.
+
+## Hosting on Render
+
+The repo contains a `render.yaml` blueprint. In the Render dashboard choose
+**New → Blueprint**, pick the repo, **Apply**. The free instance sleeps after
+15 idle minutes and takes about a minute to wake, so open the board a couple of
+minutes before you start. The URL is public: anyone with the link can join.
+
 ## Tests
 
 ```
