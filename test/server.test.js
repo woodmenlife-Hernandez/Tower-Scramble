@@ -171,6 +171,52 @@ test('join page and board are served; SSE advertises the requesting Host', async
   }
 });
 
+test('GET /state returns one complete JSON snapshot with the requesting Host as joinUrl', async () => {
+  const server = srv.createServer();
+  await new Promise((r) => server.listen(0, r));
+  const port = server.address().port;
+  try {
+    const r = await new Promise((resolve, reject) => {
+      http.get({ host: '127.0.0.1', port, path: '/state', headers: { Host: `10.9.8.7:${port}` } }, (res) => {
+        let body = '';
+        res.on('data', (c) => (body += c));
+        res.on('end', () => resolve({ status: res.statusCode, headers: res.headers, body }));
+      }).on('error', reject);
+    });
+    assert.equal(r.status, 200);
+    assert.match(r.headers['content-type'], /application\/json/);
+    assert.ok(r.headers['content-length'], 'complete response must carry Content-Length');
+    const state = JSON.parse(r.body);
+    assert.equal(state.joinUrl, `http://10.9.8.7:${port}`);
+    assert.equal(state.phase, 'lobby');
+    assert.ok(Array.isArray(state.avatars) && state.avatars.length > 0);
+  } finally {
+    server.close();
+  }
+});
+
+test('live.js helper is served and both pages load it before their inline script', async () => {
+  const server = srv.createServer();
+  await new Promise((r) => server.listen(0, r));
+  const port = server.address().port;
+  try {
+    const js = await get(`http://127.0.0.1:${port}/live.js`);
+    assert.equal(js.status, 200);
+    assert.match(js.body, /connectLive/);
+    for (const p of ['/', '/board']) {
+      const page = await get(`http://127.0.0.1:${port}${p}`);
+      const helperAt = page.body.indexOf('<script src="/live.js">');
+      const inlineAt = page.body.lastIndexOf('<script>');
+      assert.ok(helperAt > -1, p + ' loads live.js');
+      assert.ok(helperAt < inlineAt, p + ' loads live.js before its inline script');
+      assert.match(page.body, /connectLive\(/);
+      assert.doesNotMatch(page.body, /new EventSource\(/, p + ' no longer opens EventSource directly');
+    }
+  } finally {
+    server.close();
+  }
+});
+
 test('requiring server.js does not start listening on its own', async () => {
   // If the module auto-listened on PORT, this listen would collide (EADDRINUSE).
   const probe = http.createServer();

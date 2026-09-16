@@ -410,6 +410,7 @@ function json(res, obj, status = 200) {
 const STATIC = {
   '/': path.join(PUBLIC, 'team.html'),
   '/board': path.join(PUBLIC, 'board.html'),
+  '/live.js': path.join(PUBLIC, 'live.js'),
   '/background.png': path.join(ROOT, 'background.png'),
   '/tower1.png': path.join(ROOT, 'tower1.png'),
   '/tower2.png': path.join(ROOT, 'tower2.png'),
@@ -436,6 +437,12 @@ function createServer() {
     return;
   }
 
+  if (p === '/state') {
+    const addr = server.address();
+    const joinUrl = joinUrlFor(req, { ip: lanIp(), port: (addr && addr.port) || PORT });
+    return json(res, { ...publicState(), joinUrl });
+  }
+
   if (req.method === 'POST' && p.startsWith('/api/')) {
     const body = await readBody(req);
     if (p === '/api/join') return json(res, joinTeam(body.name, body.avatar));
@@ -444,56 +451,6 @@ function createServer() {
     if (p === '/api/reset') return json(res, resetGame());
     return json(res, { error: 'Unknown endpoint' }, 404);
   }
-
-  // ---- TEMPORARY streaming diagnostics (proxy buffering investigation) ----
-  if (p.startsWith('/debug/')) {
-    const started = Date.now();
-    const stamp = () => ((Date.now() - started) / 1000).toFixed(1) + 's';
-    const tick = (write, n, ms, end) => {
-      let i = 0;
-      const iv = setInterval(() => {
-        i++;
-        write(i);
-        if (i >= n) { clearInterval(iv); if (end) res.end(); }
-      }, ms);
-      req.on('close', () => clearInterval(iv));
-    };
-    console.log('[debug] ' + p + ' from ' + (req.headers['x-forwarded-for'] || req.socket.remoteAddress));
-    if (p === '/debug/plain') {
-      // finite text/plain chunked stream: does *any* streaming get through?
-      res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-cache' });
-      res.write('start ' + stamp() + '\n');
-      return tick((i) => res.write('tick ' + i + ' ' + stamp() + '\n'), 8, 1000, true);
-    }
-    if (p === '/debug/sse-finite') {
-      // event-stream that ENDS after 8s: if all frames arrive together at the
-      // end, the proxy buffers until the response completes.
-      res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache' });
-      res.write('retry: 2000\n\n');
-      return tick((i) => res.write('data: {"i":' + i + ',"t":"' + stamp() + '"}\n\n'), 8, 1000, true);
-    }
-    if (p === '/debug/sse-padded') {
-      // same as /events but with 8KB of comment padding first and the
-      // usual anti-buffering headers: tests "buffer until N bytes" proxies.
-      res.writeHead(200, {
-        'Content-Type': 'text/event-stream',
-        'Cache-Control': 'no-cache, no-transform',
-        'X-Accel-Buffering': 'no',
-      });
-      res.write(':' + ' '.repeat(8192) + '\n\n');
-      res.write('data: {"padded":true,"t":"' + stamp() + '"}\n\n');
-      return tick((i) => res.write('data: {"i":' + i + ',"t":"' + stamp() + '"}\n\n'), 8, 1000, true);
-    }
-    if (p === '/debug/sse-flush') {
-      // like /events but with flushHeaders() and no Connection header.
-      res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache' });
-      res.flushHeaders();
-      res.write('data: {"flush":true,"t":"' + stamp() + '"}\n\n');
-      return tick((i) => res.write('data: {"i":' + i + ',"t":"' + stamp() + '"}\n\n'), 8, 1000, true);
-    }
-    res.writeHead(404); return res.end('unknown debug endpoint');
-  }
-  // ---- end diagnostics ----
 
   if (STATIC[p]) return serveFile(res, STATIC[p]);
   res.writeHead(404);

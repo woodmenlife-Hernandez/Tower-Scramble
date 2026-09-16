@@ -161,6 +161,7 @@
     </div>
   </div>
 
+<script src="/live.js"></script>
 <script>
 let state = null;
 let teamId = localStorage.getItem('ts_teamId') || null;
@@ -316,12 +317,11 @@ function render() {
   renderPlay();
 }
 
-const es = new EventSource('/events');
-es.onmessage = (e) => {
-  state = JSON.parse(e.data);
+connectLive((s) => {
+  state = s;
   clockOffset = state.now - Date.now();
   render();
-};
+});
 setInterval(() => { if (state && state.phase === 'playing' && myTeam()) renderTimer(); }, 200);
 </script>
 </body>

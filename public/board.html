@@ -295,6 +295,7 @@
     <button id="againBtn">↺ PLAY AGAIN</button>
   </div>
 
+<script src="/live.js"></script>
 <script>
 // ================= pixel sprites (the boss & the falcons) =================
 // Each sprite is a char grid; the palette maps chars to colors. Two grids
@@ -614,12 +615,11 @@ function esc(s) {
   return String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 }
 
-const es = new EventSource('/events');
-es.onmessage = (e) => {
-  state = JSON.parse(e.data);
+connectLive((s) => {
+  state = s;
   clockOffset = state.now - Date.now();
   render();
-};
+});
 // smooth countdown between server pushes
 setInterval(() => { if (state && state.phase === 'playing') renderScore(); }, 250);
 </script>
