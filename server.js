@@ -402,9 +402,12 @@ function readBody(req) {
   });
 }
 
+// Complete responses with an explicit length: proxies that buffer chunked
+// bodies (corporate TLS inspection) release these immediately.
 function json(res, obj, status = 200) {
-  res.writeHead(status, { 'Content-Type': 'application/json' });
-  res.end(JSON.stringify(obj));
+  const body = Buffer.from(JSON.stringify(obj), 'utf8');
+  res.writeHead(status, { 'Content-Type': 'application/json', 'Content-Length': body.length });
+  res.end(body);
 }
 
 const STATIC = {
