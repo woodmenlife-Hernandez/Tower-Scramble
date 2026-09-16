@@ -197,7 +197,9 @@ stream.
 - `public/board.html` — big-screen view: animated tower (tower1/2/3
   superimposed for the shifting effect), climbing avatars, standings, join URL
 - `public/team.html` — team laptop view: join screen, scrambled word, timer
-- `words.json` — the word list (level 1–5, category, scrambled/unscrambled)
+- `words.json` — the word list (level 1–5, category, unscrambled). The
+  server shuffles the letters itself each time a word is dealt; the legacy
+  `scrambled` field in the file is ignored.
 - `background.png`, `tower1-3.png` — art assets
 
 ## Customizing
@@ -205,4 +207,5 @@ stream.
 Edit the constants at the top of `server.js`:
 `WIN_RUNG` (floors to win), `WORD_SECONDS` (timer), `MAX_TEAMS`, `AVATARS`.
 Add words to `words.json` (keep several words per level+length so all teams
-can draw distinct same-length words).
+can draw distinct same-length words). Only `level`, `category` and
+`unscrambled` are needed; scrambling happens at deal time.

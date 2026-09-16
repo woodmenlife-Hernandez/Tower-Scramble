@@ -12,3 +12,7 @@ python source/word_bank/generate_scrambled.py
 ```
 
 The script scrambles deterministically (reverse of the word) so results are stable across runs.
+
+Note: the game server no longer uses the `scrambled` field. It shuffles each
+word's letters (Fisher-Yates, never the word itself or its reverse) when the
+word is dealt, so only `unscrambled`, `level` and `category` matter.

@@ -33,7 +33,6 @@ function loadWords() {
     pool.push({
       level: w.level,
       answer: w.unscrambled.toLowerCase(),
-      scrambled: w.scrambled.toLowerCase(),
       category: w.category,
       length: w.unscrambled.length,
     });
@@ -42,6 +41,30 @@ function loadWords() {
 }
 
 const WORD_POOL = loadWords();
+
+// Fisher-Yates shuffle of the letters. The pre-baked `scrambled` field in
+// words.json is just the word reversed, so we ignore it and shuffle here.
+// Rejects results equal to the word or its mirror image whenever a genuinely
+// different arrangement exists (e.g. "aa" or "ab" have no such arrangement).
+function scrambleWord(word, rng = Math.random) {
+  const letters = word.split('');
+  const reversed = letters.slice().reverse().join('');
+  const distinct = new Set(letters).size;
+  // Any word of 3+ letters with at least two distinct letters has an
+  // arrangement that is neither the word nor its reverse.
+  const canDiffer = distinct >= 2 && word.length >= 3;
+  for (let attempt = 0; attempt < 50; attempt++) {
+    const a = letters.slice();
+    for (let i = a.length - 1; i > 0; i--) {
+      const j = Math.floor(rng() * (i + 1));
+      [a[i], a[j]] = [a[j], a[i]];
+    }
+    const out = a.join('');
+    if (!canDiffer || (out !== word && out !== reversed)) return out;
+  }
+  // Astronomically unlikely fallback: rotate by one so it at least differs.
+  return word.slice(1) + word[0];
+}
 
 // Difficulty for the word that takes a team onto `targetRung` (1..10).
 function difficultyFor(targetRung) {
@@ -125,7 +148,7 @@ function dealWord(team) {
   const word = candidates[Math.floor(Math.random() * candidates.length)];
   game.usedWords.add(word.answer);
   team.seenAnswers.add(word.answer);
-  team.word = word;
+  team.word = { ...word, scrambled: scrambleWord(word.answer) };
   team.deadline = Date.now() + WORD_SECONDS * 1000;
 }
 
@@ -484,4 +507,4 @@ async function start() {
 
 if (require.main === module) start();
 
-module.exports = { createServer, start, pickLanIp, chooseLanIp, detectLanIp, lanIp, joinUrlFor };
+module.exports = { scrambleWord, createServer, start, pickLanIp, chooseLanIp, detectLanIp, lanIp, joinUrlFor };

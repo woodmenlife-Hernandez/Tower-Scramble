@@ -233,3 +233,37 @@ test('requiring server.js does not start listening on its own', async () => {
   assert.ok(result === 'free' || result === 'EADDRINUSE');
   assert.equal(srv.server, undefined);
 });
+
+// ------------------------------------------------------------ scrambleWord
+
+test('scrambleWord keeps the same letters', () => {
+  for (const w of ['data', 'model', 'algorithm', 'neural network']) {
+    const out = srv.scrambleWord(w);
+    assert.equal(out.length, w.length);
+    assert.equal(out.split('').sort().join(''), w.split('').sort().join(''));
+  }
+});
+
+test('scrambleWord never returns the word or its reverse', () => {
+  const words = ['bot', 'data', 'model', 'tensor', 'gradient', 'aab', 'aba'];
+  for (const w of words) {
+    const rev = w.split('').reverse().join('');
+    for (let i = 0; i < 300; i++) {
+      const out = srv.scrambleWord(w);
+      assert.notEqual(out, w, `returned the word itself: ${w}`);
+      assert.notEqual(out, rev, `returned the reversed word: ${w}`);
+    }
+  }
+});
+
+test('scrambleWord produces varied arrangements, not mostly reversals', () => {
+  const seen = new Set();
+  for (let i = 0; i < 200; i++) seen.add(srv.scrambleWord('gradient'));
+  assert.ok(seen.size > 20, `only ${seen.size} distinct scrambles`);
+});
+
+test('scrambleWord handles words with no alternative arrangement', () => {
+  assert.equal(srv.scrambleWord('aa'), 'aa');
+  assert.equal(srv.scrambleWord('a'), 'a');
+  assert.ok(['ab', 'ba'].includes(srv.scrambleWord('ab')));
+});
