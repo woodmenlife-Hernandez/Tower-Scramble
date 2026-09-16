@@ -1,0 +1,12 @@
+{
+  "name": "tower-scramble",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Retro arcade multiplayer word-unscramble game. Zero dependencies.",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "test": "node --test"
+  },
+  "engines": { "node": ">=18" }
+}

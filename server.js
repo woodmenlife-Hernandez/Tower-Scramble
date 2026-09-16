@@ -8,6 +8,7 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
+const dgram = require('dgram');
 const crypto = require('crypto');
 
 const PORT = process.env.PORT || 3000;
@@ -199,7 +200,7 @@ function resetGame() {
 }
 
 // Timer sweep: drop teams whose word expired.
-setInterval(() => {
+const sweepTimer = setInterval(() => {
   if (game.phase !== 'playing') return;
   const now = Date.now();
   let changed = false;
@@ -213,6 +214,7 @@ setInterval(() => {
   }
   if (changed) broadcast();
 }, 300);
+sweepTimer.unref(); // never keep the process alive on its own (tests)
 
 // ----------------------------------------------------------- state snapshot
 
@@ -223,7 +225,6 @@ function publicState() {
     seq: game.seq,
     now: Date.now(),
     winRung: WIN_RUNG,
-    joinUrl: joinUrl(),
     avatars: AVATARS,
     takenAvatars: [...game.teams.values()].map((t) => t.avatar),
     winner: winner ? { id: winner.id, name: winner.name, avatar: winner.avatar } : null,
@@ -246,29 +247,118 @@ function publicState() {
 
 const sseClients = new Set();
 
+// Every client gets the same game state but its *own* join URL: the address
+// the board was opened with is the one teammates can actually reach.
 function broadcast() {
-  const payload = 'data: ' + JSON.stringify(publicState()) + '\n\n';
-  for (const res of sseClients) res.write(payload);
+  const state = publicState();
+  for (const res of sseClients) {
+    state.joinUrl = res.joinUrl;
+    res.write('data: ' + JSON.stringify(state) + '\n\n');
+  }
 }
 
 // Heartbeat keeps timers in sync and connections alive.
-setInterval(() => {
+const heartbeat = setInterval(() => {
   if (sseClients.size) broadcast();
 }, 1000);
+heartbeat.unref();
 
 // -------------------------------------------------------------- http server
 
-function lanIp() {
-  for (const ifaces of Object.values(os.networkInterfaces())) {
-    for (const i of ifaces || []) {
-      if (i.family === 'IPv4' && !i.internal) return i.address;
+// ------------------------------------------------------------- addressing
+//
+// Which URL do teammates type? In order of trust:
+//   1. PUBLIC_URL env  — set this when the server runs behind a proxy or on a
+//      hosted box (e.g. PUBLIC_URL=https://tower.example.com).
+//   2. The Host header of the browser that opened the board — if the host
+//      could reach us at that address, so can the room (unless it was
+//      localhost, which only works on the host's own machine).
+//   3. A best-guess LAN IP: the interface that owns the default route, else
+//      the first real-looking adapter (skipping link-local, Hyper-V, WSL,
+//      VPN tunnels...).
+
+const VIRTUAL_ADAPTER = /vethernet|wsl|hyper-v|virtualbox|vmware|vmnet|docker|loopback|bwan|tun|tap|tailscale|zerotier|wintun|npcap/i;
+
+function pickLanIp(interfaces = os.networkInterfaces()) {
+  const candidates = [];
+  for (const [name, list] of Object.entries(interfaces)) {
+    for (const i of list || []) {
+      if (i.family !== 'IPv4' && i.family !== 4) continue;
+      if (i.internal) continue;
+      if (i.address.startsWith('169.254.')) continue; // APIPA: unplugged NIC
+      candidates.push({ name, address: i.address, virtual: VIRTUAL_ADAPTER.test(name) });
     }
   }
+  const real = candidates.find((c) => !c.virtual);
+  if (real) return real.address;
+  if (candidates.length) return candidates[0].address;
   return 'localhost';
 }
 
-function joinUrl() {
-  return 'http://' + lanIp() + ':' + PORT;
+let cachedLanIp = pickLanIp();
+
+// The default-route probe can land on a VPN/SASE tunnel adapter when a
+// full-tunnel client owns the default route. Teammates on the office LAN
+// can't reach that address, so prefer the heuristic pick in that case.
+function chooseLanIp(detected, interfaces = os.networkInterfaces()) {
+  const heuristic = pickLanIp(interfaces);
+  if (!detected || detected.startsWith('169.254.') || detected === '0.0.0.0') return heuristic;
+  for (const [name, list] of Object.entries(interfaces)) {
+    for (const i of list || []) {
+      if (i.address === detected) return VIRTUAL_ADAPTER.test(name) ? heuristic : detected;
+    }
+  }
+  return detected;
+}
+
+// Ask the OS which source address it would use to reach the internet. UDP
+// connect() sends nothing on the wire; it only resolves the route. This is
+// the most reliable "my LAN IP" on machines with many virtual adapters.
+function detectLanIp() {
+  return new Promise((resolve) => {
+    let sock;
+    try {
+      sock = dgram.createSocket('udp4');
+    } catch {
+      return resolve(cachedLanIp);
+    }
+    const done = (ip) => {
+      try { sock.close(); } catch {}
+      cachedLanIp = chooseLanIp(ip);
+      resolve(cachedLanIp);
+    };
+    sock.once('error', () => done(null));
+    try {
+      sock.connect(53, '1.1.1.1', () => {
+        try { done(sock.address().address); } catch { done(null); }
+      });
+    } catch {
+      done(null);
+    }
+  });
+}
+
+function lanIp() {
+  return cachedLanIp;
+}
+
+const LOCAL_HOSTS = new Set(['localhost', '127.0.0.1', '::1', '[::1]', '0.0.0.0', '[::]']);
+const HOST_RE = /^(\[[0-9a-fA-F:.]+\]|[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?)(:\d{1,5})?$/;
+
+function joinUrlFor(req, fallback, env = process.env) {
+  if (env.PUBLIC_URL) return String(env.PUBLIC_URL).trim().replace(/\/+$/, '');
+
+  const h = (req && req.headers) || {};
+  const rawHost = String(h['x-forwarded-host'] || h.host || '').split(',')[0].trim();
+  const proto = String(h['x-forwarded-proto'] || 'http').split(',')[0].trim() === 'https' ? 'https' : 'http';
+
+  const m = HOST_RE.exec(rawHost);
+  if (m) {
+    const hostname = m[1].toLowerCase();
+    const isLocal = LOCAL_HOSTS.has(hostname) || hostname.startsWith('127.');
+    if (!isLocal) return proto + '://' + rawHost;
+  }
+  return 'http://' + fallback.ip + ':' + fallback.port;
 }
 
 const MIME = {
@@ -326,18 +416,21 @@ const STATIC = {
   '/tower3.png': path.join(ROOT, 'tower3.png'),
 };
 
-const server = http.createServer(async (req, res) => {
+function createServer() {
+  const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, 'http://x');
   const p = url.pathname;
 
   if (p === '/events') {
+    const addr = server.address();
+    res.joinUrl = joinUrlFor(req, { ip: lanIp(), port: (addr && addr.port) || PORT });
     res.writeHead(200, {
       'Content-Type': 'text/event-stream',
       'Cache-Control': 'no-cache',
       Connection: 'keep-alive',
     });
     res.write('retry: 2000\n\n');
-    res.write('data: ' + JSON.stringify(publicState()) + '\n\n');
+    res.write('data: ' + JSON.stringify({ ...publicState(), joinUrl: res.joinUrl }) + '\n\n');
     sseClients.add(res);
     req.on('close', () => sseClients.delete(res));
     return;
@@ -355,13 +448,30 @@ const server = http.createServer(async (req, res) => {
   if (STATIC[p]) return serveFile(res, STATIC[p]);
   res.writeHead(404);
   res.end('Not found');
-});
+  });
+  return server;
+}
 
-server.listen(PORT, () => {
-  console.log('');
-  console.log('  ████ TOWER SCRAMBLE ████');
-  console.log('');
-  console.log('  Big screen (host):  ' + joinUrl() + '/board');
-  console.log('  Teams join at:      ' + joinUrl());
-  console.log('');
-});
+async function start() {
+  await detectLanIp();
+  const server = createServer();
+  server.listen(PORT, () => {
+    const base = process.env.PUBLIC_URL
+      ? String(process.env.PUBLIC_URL).replace(/\/+$/, '')
+      : 'http://' + lanIp() + ':' + PORT;
+    console.log('');
+    console.log('  ████ TOWER SCRAMBLE ████');
+    console.log('');
+    console.log('  Big screen (host):  ' + base + '/board');
+    console.log('  Teams join at:      ' + base);
+    console.log('');
+    console.log('  Listening on all interfaces, port ' + PORT + '.');
+    console.log("  Teammates can't connect? See README → Troubleshooting.");
+    console.log('');
+  });
+  return server;
+}
+
+if (require.main === module) start();
+
+module.exports = { createServer, start, pickLanIp, chooseLanIp, detectLanIp, lanIp, joinUrlFor };

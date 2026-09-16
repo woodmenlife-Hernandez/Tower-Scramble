@@ -1,0 +1,15 @@
+# Render Blueprint — https://render.com/docs/infrastructure-as-code
+# In the Render dashboard: New → Blueprint → pick this repo → Apply.
+# Render sets PORT itself; server.js reads it. The board advertises the
+# https://<service>.onrender.com address automatically via X-Forwarded-* headers.
+services:
+  - type: web
+    name: tower-scramble
+    runtime: node
+    region: ohio
+    plan: free
+    branch: main
+    buildCommand: npm install --omit=dev
+    startCommand: node server.js
+    healthCheckPath: /
+    autoDeploy: true
