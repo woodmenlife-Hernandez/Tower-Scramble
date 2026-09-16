@@ -232,10 +232,10 @@ $('guessForm').onsubmit = async (e) => {
     panel.classList.remove('flash-good'); void panel.offsetWidth;
     panel.classList.add('flash-good');
   } else if (r.correct === false) {
-    setFeedback('NOPE! TRY AGAIN…', 'bad');
+    $('guessInput').value = '';
+    setFeedback('WRONG! KNOCKED DOWN A FLOOR ▼ NEW WORD!', 'bad');
     panel.classList.remove('shake'); void panel.offsetWidth;
     panel.classList.add('shake');
-    $('guessInput').select();
   } else if (r.error) {
     setFeedback(r.error, 'bad');
   }
@@ -262,7 +262,9 @@ function renderPlay() {
   if (t.lastEvent && t.lastEvent.seq !== lastEventSeq) {
     lastEventSeq = t.lastEvent.seq;
     if (t.lastEvent.type === 'drop') {
-      setFeedback("TIME'S UP! A BABY FALCON KNOCKED YOU DOWN A FLOOR ▼", 'bad');
+      setFeedback(t.lastEvent.reason === 'wrong'
+        ? 'WRONG! KNOCKED DOWN A FLOOR ▼ NEW WORD!'
+        : "TIME'S UP! A BABY FALCON KNOCKED YOU DOWN A FLOOR ▼", 'bad');
       $('guessInput').value = '';
     }
   }

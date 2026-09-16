@@ -181,7 +181,9 @@ stream.
 
 - Each correct unscramble climbs your avatar **one floor** (10 floors to win).
 - You get **60 seconds** per word. Time runs out → you **drop a floor** and
-  get a new word. Wrong guesses are free — keep trying until the clock hits 0.
+  get a new word.
+- A **wrong guess** also knocks you **down a floor** and deals a new word, so
+  think before you hit enter. You can never fall below the ground floor.
 - Words get harder as you climb (difficulty levels 1–5 from `words.json`,
   two floors per level), and every team gets a word of the **same length**
   at the same floor, so the race is fair.

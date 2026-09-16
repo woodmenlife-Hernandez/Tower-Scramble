@@ -96,7 +96,7 @@ function makeTeam(name, avatar) {
     word: null, // {answer, scrambled, level, length, category}
     deadline: null, // ms epoch when current word expires
     seenAnswers: new Set(),
-    lastEvent: null, // {type: climb|drop|win, seq}
+    lastEvent: null, // {type: climb|drop|win, reason?: timeout|wrong, seq}
   };
 }
 
@@ -152,9 +152,17 @@ function dealWord(team) {
   team.deadline = Date.now() + WORD_SECONDS * 1000;
 }
 
-function setEvent(team, type) {
+function setEvent(team, type, extra) {
   game.seq++;
-  team.lastEvent = { type, seq: game.seq };
+  team.lastEvent = { type, seq: game.seq, ...extra };
+}
+
+// Knock a team down one floor (never below the ground) and hand it a fresh
+// word for its new target rung. `reason` is 'timeout' or 'wrong'.
+function knockDown(team, reason) {
+  team.rung = Math.max(0, team.rung - 1);
+  dealWord(team);
+  setEvent(team, 'drop', { reason });
 }
 
 // ------------------------------------------------------------------ actions
@@ -195,7 +203,10 @@ function submitGuess(teamId, guess) {
 
   const cleaned = String(guess || '').toLowerCase().replace(/[^a-z]/g, '');
   if (cleaned !== team.word.answer) {
-    return { correct: false };
+    // A wrong guess costs a floor, same as running out of time.
+    knockDown(team, 'wrong');
+    broadcast();
+    return { correct: false, rung: team.rung };
   }
 
   team.rung++;
@@ -229,9 +240,7 @@ const sweepTimer = setInterval(() => {
   let changed = false;
   for (const team of game.teams.values()) {
     if (team.deadline && now >= team.deadline) {
-      team.rung = Math.max(0, team.rung - 1);
-      dealWord(team);
-      setEvent(team, 'drop');
+      knockDown(team, 'timeout');
       changed = true;
     }
   }
@@ -507,4 +516,7 @@ async function start() {
 
 if (require.main === module) start();
 
-module.exports = { scrambleWord, createServer, start, pickLanIp, chooseLanIp, detectLanIp, lanIp, joinUrlFor };
+// Test-only peek at server-side team state (answers are never sent to clients).
+const _test = { team: (id) => game.teams.get(id) };
+
+module.exports = { scrambleWord, _test, createServer, start, pickLanIp, chooseLanIp, detectLanIp, lanIp, joinUrlFor };

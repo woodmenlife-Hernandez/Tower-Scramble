@@ -267,3 +267,72 @@ test('scrambleWord handles words with no alternative arrangement', () => {
   assert.equal(srv.scrambleWord('a'), 'a');
   assert.ok(['ab', 'ba'].includes(srv.scrambleWord('ab')));
 });
+
+// ------------------------------------------------------------ wrong guesses
+
+function postJson(port, path, body) {
+  return new Promise((resolve, reject) => {
+    const data = JSON.stringify(body);
+    const req = http.request({ host: '127.0.0.1', port, path, method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(data) } }, (res) => {
+      let buf = '';
+      res.on('data', (c) => (buf += c));
+      res.on('end', () => resolve(JSON.parse(buf)));
+    });
+    req.on('error', reject);
+    req.end(data);
+  });
+}
+
+function getJson(port, path) {
+  return new Promise((resolve, reject) => {
+    http.get({ host: '127.0.0.1', port, path }, (res) => {
+      let buf = '';
+      res.on('data', (c) => (buf += c));
+      res.on('end', () => resolve(JSON.parse(buf)));
+    }).on('error', reject);
+  });
+}
+
+test('a wrong guess knocks the team down a floor and deals a new word', async () => {
+  const server = srv.createServer();
+  await new Promise((r) => server.listen(0, r));
+  const port = server.address().port;
+  try {
+    await postJson(port, '/api/reset', {});
+    const avatar = (await getJson(port, '/state')).avatars[0];
+    const { teamId } = await postJson(port, '/api/join', { name: 'Falcons', avatar });
+    assert.ok(teamId);
+    assert.deepEqual(await postJson(port, '/api/start', {}), { ok: true });
+
+    const before = (await getJson(port, '/state')).teams[0];
+    assert.equal(before.rung, 0);
+
+    // Wrong from the ground floor: stays at 0 but still gets a fresh word.
+    let r = await postJson(port, '/api/guess', { teamId, guess: 'zzzzzzzzzzzz' });
+    assert.deepEqual(r, { correct: false, rung: 0 });
+    let t = (await getJson(port, '/state')).teams[0];
+    assert.equal(t.rung, 0);
+    assert.equal(t.lastEvent.type, 'drop');
+    assert.equal(t.lastEvent.reason, 'wrong');
+    assert.ok(t.scrambled && t.scrambled !== before.scrambled, 'a new word should be dealt');
+
+    // Climb to floor 1 with the real answer, then a wrong guess drops back to 0.
+    const answer = srv._test.team(teamId).word.answer;
+    r = await postJson(port, '/api/guess', { teamId, guess: answer.toUpperCase() });
+    assert.equal(r.correct, true);
+    assert.equal(r.rung, 1);
+    const atOne = (await getJson(port, '/state')).teams[0];
+    assert.equal(atOne.rung, 1);
+
+    r = await postJson(port, '/api/guess', { teamId, guess: 'definitely-not-it' });
+    assert.deepEqual(r, { correct: false, rung: 0 });
+    t = (await getJson(port, '/state')).teams[0];
+    assert.equal(t.rung, 0);
+    assert.equal(t.lastEvent.reason, 'wrong');
+    assert.ok(t.deadline > Date.now(), 'timer restarts with the new word');
+  } finally {
+    await postJson(port, '/api/reset', {});
+    server.close();
+  }
+});
